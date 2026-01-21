@@ -7,7 +7,7 @@ Goal: users should only need:
     import reza
     y = reza.lp(x, fs=200, fc=5)          # low-pass 5 Hz
     y = reza.hp(x, fs=200, fc=10)         # high-pass 10 Hz
-    y = reza.bp(x, fs=200, f1=5, f2=10)   # band-pass 5–10 Hz
+    y = reza.bp(x, fs=200, f1=5, f2=10)   # band-pass 5Ã¢â‚¬â€œ10 Hz
 
 All shape parameters are internal. The dynamic-decay exponent d is auto-selected
 (auto_d) and cached so users never need to tune it.
@@ -230,3 +230,78 @@ def hp(data, fs: float, fc: float, axis: int = -1):
 
 def bp(data, fs: float, f1: float, f2: float, axis: int = -1):
     return bandpass(data, fs, f1, f2, axis=axis)
+# ---- Public frequency-response API (SciPy-like) ----
+from ._response import freqz, freqz_lp, freqz_hp, freqz_bp, dynamic_decay
+
+# ---- Reza frequency response (SciPy-like, exact) ----
+def freqz(kind: str, *, fs: float, worN: int = 2048,
+          fc: float = None, f1: float = None, f2: float = None,
+          n: int = 4096):
+    """
+    SciPy-like frequency response for Reza filter.
+
+    Returns (w_hz, H) where:
+      - w_hz spans [0, fs/2] in Hz
+      - H is complex response
+
+    Implementation is impulse-based and therefore EXACTLY matches the current
+    Reza lp/hp/bp implementation (including any internal 'dynamic decay').
+    Note: Because Reza is FFT-shaped at length n, H depends on n.
+    """
+    import numpy as np
+
+    fs = float(fs)
+    worN = int(worN)
+    n = int(n)
+
+    if worN < 16:
+        worN = 16
+    if n < 32:
+        n = 32
+
+    k = str(kind).lower().strip()
+    if k in ("lp", "low", "lowpass", "low-pass"):
+        if fc is None:
+            raise ValueError("freqz(kind='lp') requires fc=...")
+        _apply = lambda x: lp(x, fs=fs, fc=float(fc))
+    elif k in ("hp", "high", "highpass", "high-pass"):
+        if fc is None:
+            raise ValueError("freqz(kind='hp') requires fc=...")
+        _apply = lambda x: hp(x, fs=fs, fc=float(fc))
+    elif k in ("bp", "band", "bandpass", "band-pass"):
+        if f1 is None or f2 is None:
+            raise ValueError("freqz(kind='bp') requires f1=... and f2=...")
+        _apply = lambda x: bp(x, fs=fs, f1=float(f1), f2=float(f2))
+    else:
+        raise ValueError("kind must be one of: 'lp', 'hp', 'bp' (or aliases)")
+
+    imp = np.zeros(n, dtype=float)
+    imp[0] = 1.0
+
+    h = _apply(imp)
+
+    H_full = np.fft.rfft(h)
+    f_full = np.fft.rfftfreq(n, d=1.0/fs)
+
+    # If user wants the native FFT grid, return it
+    if worN is None or worN == len(f_full):
+        return f_full, H_full
+
+    # Otherwise, interpolate complex H onto a uniform [0, fs/2] grid
+    w = np.linspace(0.0, fs/2.0, worN, endpoint=True)
+    Hr = np.interp(w, f_full, H_full.real)
+    Hi = np.interp(w, f_full, H_full.imag)
+    H = Hr + 1j*Hi
+    return w, H
+
+
+def freqz_lp(*, fs: float, fc: float, worN: int = 2048, n: int = 4096):
+    return freqz("lp", fs=fs, fc=fc, worN=worN, n=n)
+
+
+def freqz_hp(*, fs: float, fc: float, worN: int = 2048, n: int = 4096):
+    return freqz("hp", fs=fs, fc=fc, worN=worN, n=n)
+
+
+def freqz_bp(*, fs: float, f1: float, f2: float, worN: int = 2048, n: int = 4096):
+    return freqz("bp", fs=fs, f1=f1, f2=f2, worN=worN, n=n)
