@@ -12,9 +12,9 @@ y = reza.bandpass(x, fs=100.0, fc_low=0.5, fc_high=5.0)
 - Auto-`d` selection via edge-sharpness convergence
 - rFFT-domain complex multiply (X * gain)
 
-FFT/iFFT uses NumPy (already optimized).
+FFT/iFFT uses NumPy.
 
-## Install (after you publish to PyPI)
+## Install
 ```bash
 pip install reza-filter
 ```
@@ -26,10 +26,10 @@ python -m pip install -e .
 python -c "import reza; print('has_cpp=', reza.has_cpp()); print(reza.__version__)"
 ```
 
-## Build wheels (recommended for public release)
+## Build wheels
 Use GitHub Actions + cibuildwheel: see `.github/workflows/wheels.yml`.
 
-## Publish to PyPI (after wheels exist)
+## Publish to PyPI
 ```bash
 python -m pip install -U build twine
 python -m build
