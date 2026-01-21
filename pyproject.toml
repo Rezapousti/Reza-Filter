@@ -27,5 +27,4 @@ wheel.packages = ["src/reza"]
 minimum-version = "0.10"
 build-dir = "build/{wheel_tag}"
 
-[tool.scikit-build.cmake]
-minimum-version = "3.18"
+
