@@ -7,7 +7,7 @@ Goal: users should only need:
     import reza
     y = reza.lp(x, fs=200, fc=5)          # low-pass 5 Hz
     y = reza.hp(x, fs=200, fc=10)         # high-pass 10 Hz
-    y = reza.bp(x, fs=200, f1=5, f2=10)   # band-pass 5Ã¢â‚¬â€œ10 Hz
+    y = reza.bp(x, fs=200, f1=5, f2=10)   # band-pass 5ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“10 Hz
 
 All shape parameters are internal. The dynamic-decay exponent d is auto-selected
 (auto_d) and cached so users never need to tune it.
@@ -230,8 +230,6 @@ def hp(data, fs: float, fc: float, axis: int = -1):
 
 def bp(data, fs: float, f1: float, f2: float, axis: int = -1):
     return bandpass(data, fs, f1, f2, axis=axis)
-# ---- Public frequency-response API (SciPy-like) ----
-from ._response import freqz, freqz_lp, freqz_hp, freqz_bp, dynamic_decay
 
 # ---- Reza frequency response (SciPy-like, exact) ----
 def freqz(kind: str, *, fs: float, worN: int = 2048,
