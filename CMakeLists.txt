@@ -11,7 +11,7 @@ find_package(Python REQUIRED COMPONENTS Interpreter Development.Module NumPy)
 find_package(pybind11 CONFIG REQUIRED)
 
 pybind11_add_module(_reza_cpp cpp/reza_core.cpp)
-target_link_libraries(_reza_cpp PRIVATE Python::NumPy)
+target_link_libraries(_reza_cpp PRIVATE Python::Module Python::Python Python::NumPy)
 
 # Install the compiled extension inside the Python package `reza`
 install(TARGETS _reza_cpp DESTINATION reza)
