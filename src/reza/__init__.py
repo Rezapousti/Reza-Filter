@@ -1,20 +1,34 @@
 from __future__ import annotations
 
 """
-Reza Filter (minimal user-facing API)
-------------------------------------
+Reza Filter (minimal, SciPy-like user-facing API)
+------------------------------------------------
 Goal: users should only need:
-    import reza
-    y = reza.lp(x, fs=200, fc=5)          # low-pass 5 Hz
-    y = reza.hp(x, fs=200, fc=10)         # high-pass 10 Hz
-    y = reza.bp(x, fs=200, f1=5, f2=10)   # band-pass 5ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“10 Hz
 
-All shape parameters are internal. The dynamic-decay exponent d is auto-selected
-(auto_d) and cached so users never need to tune it.
+    import reza
+
+    # SciPy-like (preferred)
+    y = reza.filter(x, fs=200, Wn=5, btype="low")         # low-pass 5 Hz
+    y = reza.filter(x, fs=200, Wn=10, btype="high")       # high-pass 10 Hz
+    y = reza.filter(x, fs=200, Wn=(5, 10), btype="band")  # band-pass 5â€“10 Hz
+
+    # Convenience wrappers
+    y = reza.low(x,  fs=200, fc=5)
+    y = reza.high(x, fs=200, fc=10)
+    y = reza.band(x, fs=200, f1=5, f2=10)
+
+Notes
+-----
+- Reza Filter is applied in the FFT domain as a zero-phase magnitude shaping curve.
+- All shaping parameters are internal. The decay exponent d is auto-selected and cached.
+- For frequency response, use reza.freqz(...). Unlike IIR filters, Rezaâ€™s response
+  depends on the effective FFT length; we choose an internal default automatically
+  so users do not need to pass n.
 """
 
-import numpy as np
+import math
 from functools import lru_cache
+import numpy as np
 
 from . import _fallback
 
@@ -25,12 +39,21 @@ except Exception:
     _cpp = None
     _HAS_CPP = False
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 
 __all__ = [
-    "lp", "hp", "bp",
+    # Primary (SciPy-like)
+    "filter", "freqz",
+
+    # Convenience wrappers
+    "low", "high", "band",
+
+    # Backward-compatible aliases
     "lowpass", "highpass", "bandpass",
-    "filter", "has_cpp", "__version__",
+    "lp", "hp", "bp",
+
+    # Utilities
+    "has_cpp", "__version__",
 ]
 
 # ---------------------------------------------------------------------
@@ -45,6 +68,12 @@ _D_INC = 5.0
 _D_THRESHOLD = 1e-4
 _D_MAX_ITER = 200
 _D_MAX = 1e6
+
+# Freq-response internal defaults (kept internal)
+_FREQZ_MIN_N = 4096
+_FREQZ_MAX_N = 262144
+_FREQZ_MIN_DF_HZ = 0.02      # do not chase absurdly fine grids by default
+_FREQZ_FMIN_FRAC = 1.0 / 100 # aim for ~100 points up to the smallest cutoff
 
 
 def has_cpp() -> bool:
@@ -170,6 +199,9 @@ def _gain_bandpass(fs: float, n: int, f1: float, f2: float) -> np.ndarray:
     return g
 
 
+# ---------------------------------------------------------------------
+# Core filtering (kept stable; used by wrappers)
+# ---------------------------------------------------------------------
 def lowpass(data, fs: float, fc: float, axis: int = -1):
     x = np.asarray(data, dtype=float)
     x_m = _move_axis_to_last(x, axis)
@@ -206,20 +238,77 @@ def bandpass(data, fs: float, f1: float, f2: float, axis: int = -1):
     X = np.ascontiguousarray(np.fft.rfft(x_m, axis=-1).astype(np.complex128, copy=False))
     Y = _apply_gain_rfft(X, gain)
     y = np.fft.irfft(Y, n=n, axis=-1)
-    return _move_axis_back(y, axis)
+    return _move_axis_back(y, axis=axis)
 
 
-def filter(data, fs: float, *, lowcut=None, highcut=None, axis: int = -1):
-    if lowcut is None and highcut is None:
-        raise ValueError("Provide at least one of lowcut or highcut")
-    if lowcut is not None and highcut is not None:
-        return bandpass(data, fs, lowcut, highcut, axis=axis)
-    if highcut is not None:
-        return lowpass(data, fs, highcut, axis=axis)
-    return highpass(data, fs, lowcut, axis=axis)
+# ---------------------------------------------------------------------
+# SciPy-like user API (preferred)
+# ---------------------------------------------------------------------
+def _normalize_btype(btype: str | None) -> str:
+    if btype is None:
+        return "low"
+    b = str(btype).strip().lower()
+    if b in ("lp", "low", "lowpass", "low-pass"):
+        return "low"
+    if b in ("hp", "high", "highpass", "high-pass"):
+        return "high"
+    if b in ("bp", "band", "bandpass", "band-pass"):
+        return "band"
+    raise ValueError("btype must be one of: 'low', 'high', 'band' (or lowpass/highpass/bandpass aliases)")
 
 
-# Short aliases (intended for end users)
+def filter(data, fs: float, Wn=None, btype: str = "low", axis: int = -1, *,
+           lowcut=None, highcut=None):
+    """
+    Filter data with a SciPy-like signature.
+
+    Preferred:
+        reza.filter(x, fs, Wn, btype="low|high|band")
+
+    Backward compatibility:
+        reza.filter(x, fs, lowcut=..., highcut=...)
+    """
+    # Legacy path (lowcut/highcut)
+    if Wn is None:
+        if lowcut is None and highcut is None:
+            raise ValueError("Provide Wn=... (preferred) or at least one of lowcut/highcut (legacy).")
+        if lowcut is not None and highcut is not None:
+            return bandpass(data, fs, lowcut, highcut, axis=axis)
+        if highcut is not None:
+            return lowpass(data, fs, highcut, axis=axis)
+        return highpass(data, fs, lowcut, axis=axis)
+
+    bt = _normalize_btype(btype)
+
+    if bt in ("low", "high") and isinstance(Wn, (tuple, list, np.ndarray)):
+        raise ValueError("For btype='low' or 'high', Wn must be a scalar cutoff (Hz).")
+    if bt == "band" and not isinstance(Wn, (tuple, list, np.ndarray)):
+        raise ValueError("For btype='band', Wn must be a (low, high) tuple in Hz.")
+
+    if bt == "low":
+        return lowpass(data, fs, float(Wn), axis=axis)
+    if bt == "high":
+        return highpass(data, fs, float(Wn), axis=axis)
+
+    # band
+    f1, f2 = float(Wn[0]), float(Wn[1])
+    return bandpass(data, fs, f1, f2, axis=axis)
+
+
+# Convenience wrappers
+def low(data, fs: float, fc: float, axis: int = -1):
+    return lowpass(data, fs, fc, axis=axis)
+
+
+def high(data, fs: float, fc: float, axis: int = -1):
+    return highpass(data, fs, fc, axis=axis)
+
+
+def band(data, fs: float, f1: float, f2: float, axis: int = -1):
+    return bandpass(data, fs, f1, f2, axis=axis)
+
+
+# Backward-compatible short aliases
 def lp(data, fs: float, fc: float, axis: int = -1):
     return lowpass(data, fs, fc, axis=axis)
 
@@ -231,75 +320,93 @@ def hp(data, fs: float, fc: float, axis: int = -1):
 def bp(data, fs: float, f1: float, f2: float, axis: int = -1):
     return bandpass(data, fs, f1, f2, axis=axis)
 
-# ---- Reza frequency response (SciPy-like, exact) ----
-def freqz(kind: str, *, fs: float, worN: int = 2048,
-          fc: float = None, f1: float = None, f2: float = None,
-          n: int = 4096):
+
+# Optional capitalized aliases (do not advertise; harmless compatibility)
+Low = low
+High = high
+Band = band
+
+
+# ---------------------------------------------------------------------
+# Frequency response (SciPy-like; no user-supplied n)
+# ---------------------------------------------------------------------
+def _next_pow2(n: int) -> int:
+    if n <= 1:
+        return 1
+    return 1 << int(math.ceil(math.log2(n)))
+
+
+def _default_n_for_freqz(fs: float, Wn, btype: str) -> int:
+    fs = float(fs)
+
+    # Determine smallest relevant cutoff (Hz)
+    if btype == "band":
+        fmin = min(float(Wn[0]), float(Wn[1]))
+    else:
+        fmin = float(Wn)
+
+    fmin = max(fmin, 1e-6)
+
+    # Target frequency resolution
+    target_df = max(_FREQZ_MIN_DF_HZ, _FREQZ_FMIN_FRAC * fmin)
+
+    n = int(math.ceil(fs / target_df))
+    n = _next_pow2(max(_FREQZ_MIN_N, n))
+    n = int(min(_FREQZ_MAX_N, n))
+    return n
+
+
+def freqz(*args, fs: float, worN: int = 2048, Wn=None, btype: str = "low",
+          fc: float = None, f1: float = None, f2: float = None):
     """
     SciPy-like frequency response for Reza filter.
 
-    Returns (w_hz, H) where:
-      - w_hz spans [0, fs/2] in Hz
-      - H is complex response
+    Preferred:
+        w_hz, H = reza.freqz(fs=200, Wn=5, btype="low", worN=2048)
 
-    Implementation is impulse-based and therefore EXACTLY matches the current
-    Reza lp/hp/bp implementation (including any internal 'dynamic decay').
-    Note: Because Reza is FFT-shaped at length n, H depends on n.
+    Backward compatibility:
+        reza.freqz("lp", fs=..., fc=...)
+        reza.freqz("hp", fs=..., fc=...)
+        reza.freqz("bp", fs=..., f1=..., f2=...)
     """
-    import numpy as np
+    # Accept legacy positional "kind"
+    if len(args) >= 1 and isinstance(args[0], str):
+        btype = args[0]
+
+    bt = _normalize_btype(btype)
+
+    # Normalize cutoffs: prefer Wn, but accept legacy fc/f1/f2
+    if Wn is None:
+        if bt in ("low", "high"):
+            if fc is None:
+                raise ValueError("freqz requires Wn=... (preferred) or fc=... (legacy) for low/high.")
+            Wn = float(fc)
+        else:
+            if f1 is None or f2 is None:
+                raise ValueError("freqz requires Wn=(f1,f2) (preferred) or f1=... and f2=... (legacy) for band.")
+            Wn = (float(f1), float(f2))
 
     fs = float(fs)
     worN = int(worN)
-    n = int(n)
-
     if worN < 16:
         worN = 16
-    if n < 32:
-        n = 32
 
-    k = str(kind).lower().strip()
-    if k in ("lp", "low", "lowpass", "low-pass"):
-        if fc is None:
-            raise ValueError("freqz(kind='lp') requires fc=...")
-        _apply = lambda x: lp(x, fs=fs, fc=float(fc))
-    elif k in ("hp", "high", "highpass", "high-pass"):
-        if fc is None:
-            raise ValueError("freqz(kind='hp') requires fc=...")
-        _apply = lambda x: hp(x, fs=fs, fc=float(fc))
-    elif k in ("bp", "band", "bandpass", "band-pass"):
-        if f1 is None or f2 is None:
-            raise ValueError("freqz(kind='bp') requires f1=... and f2=...")
-        _apply = lambda x: bp(x, fs=fs, f1=float(f1), f2=float(f2))
-    else:
-        raise ValueError("kind must be one of: 'lp', 'hp', 'bp' (or aliases)")
+    n = _default_n_for_freqz(fs, Wn, bt)
 
     imp = np.zeros(n, dtype=float)
     imp[0] = 1.0
 
-    h = _apply(imp)
+    if bt == "low":
+        h = low(imp, fs=fs, fc=float(Wn))
+    elif bt == "high":
+        h = high(imp, fs=fs, fc=float(Wn))
+    else:
+        h = band(imp, fs=fs, f1=float(Wn[0]), f2=float(Wn[1]))
 
     H_full = np.fft.rfft(h)
-    f_full = np.fft.rfftfreq(n, d=1.0/fs)
+    f_full = np.fft.rfftfreq(n, d=1.0 / fs)
 
-    # If user wants the native FFT grid, return it
-    if worN is None or worN == len(f_full):
-        return f_full, H_full
-
-    # Otherwise, interpolate complex H onto a uniform [0, fs/2] grid
-    w = np.linspace(0.0, fs/2.0, worN, endpoint=True)
+    w = np.linspace(0.0, fs / 2.0, worN, endpoint=True)
     Hr = np.interp(w, f_full, H_full.real)
     Hi = np.interp(w, f_full, H_full.imag)
-    H = Hr + 1j*Hi
-    return w, H
-
-
-def freqz_lp(*, fs: float, fc: float, worN: int = 2048, n: int = 4096):
-    return freqz("lp", fs=fs, fc=fc, worN=worN, n=n)
-
-
-def freqz_hp(*, fs: float, fc: float, worN: int = 2048, n: int = 4096):
-    return freqz("hp", fs=fs, fc=fc, worN=worN, n=n)
-
-
-def freqz_bp(*, fs: float, f1: float, f2: float, worN: int = 2048, n: int = 4096):
-    return freqz("bp", fs=fs, f1=f1, f2=f2, worN=worN, n=n)
+    return w, Hr + 1j * Hi
