@@ -12,3 +12,6 @@ build/
 .env/
 .pytest_cache/
 wheelhouse/
+
+*.bak
+
