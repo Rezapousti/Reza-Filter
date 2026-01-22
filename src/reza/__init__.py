@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 """
@@ -10,7 +11,7 @@ Goal: users should only need:
     # SciPy-like (preferred)
     y = reza.filter(x, fs=200, Wn=5, btype="low")         # low-pass 5 Hz
     y = reza.filter(x, fs=200, Wn=10, btype="high")       # high-pass 10 Hz
-    y = reza.filter(x, fs=200, Wn=(5, 10), btype="band")  # band-pass 5-10 Hz
+    y = reza.filter(x, fs=200, Wn=(5, 10), btype="band")  # band-pass 5–10 Hz
 
     # Convenience wrappers
     y = reza.low(x,  fs=200, fc=5)
@@ -21,7 +22,7 @@ Notes
 -----
 - Reza Filter is applied in the FFT domain as a zero-phase magnitude shaping curve.
 - All shaping parameters are internal. The decay exponent d is auto-selected and cached.
-- For frequency response, use reza.freqz(...). Unlike IIR filters, Reza's response
+- For frequency response, use reza.freqz(...). Unlike IIR filters, Reza’s response
   depends on the effective FFT length; we choose an internal default automatically
   so users do not need to pass n.
 """
@@ -29,13 +30,6 @@ Notes
 import math
 from functools import lru_cache
 import numpy as np
-
-# Package version (must match installed distribution metadata)
-try:
-    from importlib.metadata import version as _pkg_version  # py3.8+
-    __version__ = _pkg_version("reza-filter")
-except Exception:
-    __version__ = "0.0.0"
 
 from . import _fallback
 
@@ -46,27 +40,34 @@ except Exception:
     _cpp = None
     _HAS_CPP = False
 
+
+def _pkg_version() -> str:
+    """
+    Report the installed distribution version.
+    This avoids stale hard-coded __version__ values inside the package.
+    """
+    try:
+        from importlib.metadata import version as _version  # py3.8+
+        return _version("reza-filter")
+    except Exception:
+        return "0.0.0"
+
+
+__version__ = _pkg_version()
+
 __all__ = [
     # Primary (SciPy-like)
-    "filter",
-    "freqz",
+    "filter", "freqz",
 
     # Convenience wrappers
-    "low",
-    "high",
-    "band",
+    "low", "high", "band",
 
     # Backward-compatible aliases
-    "lowpass",
-    "highpass",
-    "bandpass",
-    "lp",
-    "hp",
-    "bp",
+    "lowpass", "highpass", "bandpass",
+    "lp", "hp", "bp",
 
     # Utilities
-    "has_cpp",
-    "__version__",
+    "has_cpp", "__version__",
 ]
 
 # ---------------------------------------------------------------------
