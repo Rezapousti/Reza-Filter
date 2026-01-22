@@ -1,4 +1,3 @@
-\
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
 
@@ -10,15 +9,20 @@
 
 namespace py = pybind11;
 
-static inline ssize_t rfft_len(ssize_t n) { return (n / 2) + 1; }
+// Use pybind11's ssize type (portable across Windows/Linux/macOS)
+using ssize = py::ssize_t;
 
-static inline std::vector<double> make_rfftfreq(ssize_t n, double fs) {
+static inline ssize rfft_len(ssize n) { return (n / 2) + 1; }
+
+static inline std::vector<double> make_rfftfreq(ssize n, double fs) {
     if (fs <= 0.0) throw std::invalid_argument("fs must be > 0");
     if (n < 2) throw std::invalid_argument("n must be >= 2");
-    const ssize_t m = rfft_len(n);
+    const ssize m = rfft_len(n);
     std::vector<double> freqs(static_cast<size_t>(m));
     const double df = fs / static_cast<double>(n);
-    for (ssize_t k = 0; k < m; ++k) freqs[static_cast<size_t>(k)] = df * static_cast<double>(k);
+    for (ssize k = 0; k < m; ++k) {
+        freqs[static_cast<size_t>(k)] = df * static_cast<double>(k);
+    }
     return freqs;
 }
 
@@ -41,37 +45,37 @@ static inline double gain_highpass_at(double f, double fc, double c, double offs
     return std::exp(-c * std::pow(((fc - f) + offset), d));
 }
 
-static py::array_t<double> gain_lowpass(double fs, ssize_t n, double fc, double c, double offset, double d) {
+static py::array_t<double> gain_lowpass(double fs, ssize n, double fc, double c, double offset, double d) {
     if (fc <= 0.0) throw std::invalid_argument("fc must be > 0 for lowpass");
     auto freqs = make_rfftfreq(n, fs);
-    py::array_t<double> out(static_cast<ssize_t>(freqs.size()));
+    py::array_t<double> out(static_cast<ssize>(freqs.size()));
     auto o = out.mutable_unchecked<1>();
-    for (ssize_t i = 0; i < static_cast<ssize_t>(freqs.size()); ++i) {
+    for (ssize i = 0; i < static_cast<ssize>(freqs.size()); ++i) {
         o(i) = gain_lowpass_at(freqs[static_cast<size_t>(i)], fc, c, offset, d);
     }
     return out;
 }
 
-static py::array_t<double> gain_highpass(double fs, ssize_t n, double fc, double c, double offset, double d) {
+static py::array_t<double> gain_highpass(double fs, ssize n, double fc, double c, double offset, double d) {
     if (fc <= 0.0) throw std::invalid_argument("fc must be > 0 for highpass");
     auto freqs = make_rfftfreq(n, fs);
-    py::array_t<double> out(static_cast<ssize_t>(freqs.size()));
+    py::array_t<double> out(static_cast<ssize>(freqs.size()));
     auto o = out.mutable_unchecked<1>();
-    for (ssize_t i = 0; i < static_cast<ssize_t>(freqs.size()); ++i) {
+    for (ssize i = 0; i < static_cast<ssize>(freqs.size()); ++i) {
         o(i) = gain_highpass_at(freqs[static_cast<size_t>(i)], fc, c, offset, d);
     }
     return out;
 }
 
 // bandpass = highpass(fc_low) * lowpass(fc_high)
-static py::array_t<double> gain_bandpass(double fs, ssize_t n, double fc_low, double fc_high, double c, double offset, double d) {
+static py::array_t<double> gain_bandpass(double fs, ssize n, double fc_low, double fc_high, double c, double offset, double d) {
     if (fc_low <= 0.0 || fc_high <= 0.0) throw std::invalid_argument("cutoffs must be > 0 for bandpass");
     if (fc_low >= fc_high) throw std::invalid_argument("fc_low must be < fc_high for bandpass");
 
     auto freqs = make_rfftfreq(n, fs);
-    py::array_t<double> out(static_cast<ssize_t>(freqs.size()));
+    py::array_t<double> out(static_cast<ssize>(freqs.size()));
     auto o = out.mutable_unchecked<1>();
-    for (ssize_t i = 0; i < static_cast<ssize_t>(freqs.size()); ++i) {
+    for (ssize i = 0; i < static_cast<ssize>(freqs.size()); ++i) {
         const double f = freqs[static_cast<size_t>(i)];
         o(i) = gain_highpass_at(f, fc_low, c, offset, d) * gain_lowpass_at(f, fc_high, c, offset, d);
     }
@@ -106,7 +110,7 @@ static inline double sharpness_bandpass(const std::vector<double>& freqs, const 
     return 0.5 * (s1 + s2);
 }
 
-static double auto_d_lowpass(double fs, ssize_t n, double fc,
+static double auto_d_lowpass(double fs, ssize n, double fc,
                             double c, double offset,
                             double initial_d, double d_increment, double threshold,
                             int max_iter, double max_d) {
@@ -129,7 +133,7 @@ static double auto_d_lowpass(double fs, ssize_t n, double fc,
     return d;
 }
 
-static double auto_d_highpass(double fs, ssize_t n, double fc,
+static double auto_d_highpass(double fs, ssize n, double fc,
                              double c, double offset,
                              double initial_d, double d_increment, double threshold,
                              int max_iter, double max_d) {
@@ -152,7 +156,7 @@ static double auto_d_highpass(double fs, ssize_t n, double fc,
     return d;
 }
 
-static double auto_d_bandpass(double fs, ssize_t n, double fc_low, double fc_high,
+static double auto_d_bandpass(double fs, ssize n, double fc_low, double fc_high,
                              double c, double offset,
                              double initial_d, double d_increment, double threshold,
                              int max_iter, double max_d) {
@@ -193,19 +197,22 @@ static py::array_t<std::complex<double>> apply_gain_rfft(
     if (bg.ndim != 1) throw std::invalid_argument("gain must be 1D");
     if (bx.ndim < 1) throw std::invalid_argument("X must have >= 1 dimension");
 
-    const ssize_t nfreq = bx.shape[bx.ndim - 1];
+    const ssize nfreq = bx.shape[bx.ndim - 1];
     if (bg.shape[0] != nfreq) throw std::invalid_argument("gain length must match X.shape[-1]");
 
-    py::array_t<std::complex<double>> out(bx.shape);
+    // Allocate output with the same shape as X (portable constructor)
+    py::array_t<std::complex<double>> out(
+        py::array::ShapeContainer(bx.shape, bx.shape + bx.ndim)
+    );
     auto bo = out.request();
 
-    const std::complex<double>* xp = static_cast<const std::complex<double>*>(bx.ptr);
-    const double* gp = static_cast<const double*>(bg.ptr);
-    std::complex<double>* op = static_cast<std::complex<double>*>(bo.ptr);
+    const auto* xp = static_cast<const std::complex<double>*>(bx.ptr);
+    const auto* gp = static_cast<const double*>(bg.ptr);
+    auto* op = static_cast<std::complex<double>*>(bo.ptr);
 
-    const ssize_t total = static_cast<ssize_t>(bx.size);
-    for (ssize_t i = 0; i < total; ++i) {
-        const ssize_t k = i % nfreq;
+    const ssize total = static_cast<ssize>(bx.size);
+    for (ssize i = 0; i < total; ++i) {
+        const ssize k = i % nfreq;
         op[i] = xp[i] * gp[k];
     }
     return out;
