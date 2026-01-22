@@ -8,7 +8,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "reza-filter"
-version = "0.2.4"
+version = "0.2.5"
 description = "Reza exponential-window frequency-domain filter (NumPy FFT + C++/pybind11 acceleration)."
 readme = "README.md"
 requires-python = ">=3.9"
