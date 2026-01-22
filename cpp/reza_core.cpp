@@ -197,14 +197,21 @@ static py::array_t<std::complex<double>> apply_gain_rfft(
     if (bg.ndim != 1) throw std::invalid_argument("gain must be 1D");
     if (bx.ndim < 1) throw std::invalid_argument("X must have >= 1 dimension");
 
-    const ssize nfreq = bx.shape[bx.ndim - 1];
+    const ssize ndim  = static_cast<ssize>(bx.ndim);
+    const ssize nfreq = static_cast<ssize>(bx.shape[static_cast<size_t>(ndim - 1)]);
     if (bg.shape[0] != nfreq) throw std::invalid_argument("gain length must match X.shape[-1]");
 
-    // Allocate output with the same shape as X (portable constructor)
-    py::array_t<std::complex<double>> out(
-        py::array::ShapeContainer(bx.shape, bx.shape + bx.ndim)
-    );
+    // ---- FIX (MSVC): bx.shape is a std::vector, not a pointer. Build shape safely. ----
+    std::vector<ssize> shape;
+    shape.reserve(static_cast<size_t>(ndim));
+    for (ssize i = 0; i < ndim; ++i) {
+        shape.push_back(static_cast<ssize>(bx.shape[static_cast<size_t>(i)]));
+    }
+
+    // Allocate output with the same shape as X
+    py::array_t<std::complex<double>> out(shape);
     auto bo = out.request();
+    // -------------------------------------------------------------------------------
 
     const auto* xp = static_cast<const std::complex<double>*>(bx.ptr);
     const auto* gp = static_cast<const double*>(bg.ptr);
