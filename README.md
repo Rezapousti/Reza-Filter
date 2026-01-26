@@ -1,23 +1,37 @@
-# Reza Filter
+# Reza Filter (C++-accelerated) — Python package
 
-## Quick start
+**Goal:** users do:
+
 ```python
 import reza
+y = reza.bandpass(x, fs=100.0, fc_low=0.5, fc_high=5.0)
 ```
+
+## What is accelerated in C++
+- Gain template generation (low/high/band)
+- Auto-`d` selection via edge-sharpness convergence
+- rFFT-domain complex multiply (X * gain)
+
+FFT/iFFT uses NumPy.
 
 ## Install
 ```bash
+pip install reza-filter
+```
+
+## Local dev install
+```bash
 python -m pip install -U pip
-python -m pip install reza-filter
+python -m pip install -e .
+python -c "import reza; print('has_cpp=', reza.has_cpp()); print(reza.__version__)"
 ```
 
-## Band-pass
-```bash
-y = reza.bandpass(x, fs, fc_low, fc_high)
-```
+## Build wheels
+Use GitHub Actions + cibuildwheel: see `.github/workflows/wheels.yml`.
 
-## Low-pass / High-pass
+## Publish to PyPI
 ```bash
-y_lp = reza.lowpass(x, fs, fc)
-y_hp = reza.highpass(x, fs, fc)
+python -m pip install -U build twine
+python -m build
+python -m twine upload dist/*
 ```
