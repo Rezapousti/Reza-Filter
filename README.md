@@ -1,4 +1,4 @@
-# Reza Filter (C++-accelerated, zero-phase FFT-domain filter)
+# Reza Filter 
 
 **PyPI name:** `reza-filter`  
 **Python import:** `import reza`
