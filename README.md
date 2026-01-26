@@ -1,37 +1,13 @@
-# Reza Filter (C++-accelerated) — Python package
+# Reza Filter (C++-accelerated, zero-phase FFT-domain filter)
 
-**Goal:** users do:
+**PyPI name:** `reza-filter`  
+**Python import:** `import reza`
 
-```python
-import reza
-y = reza.bandpass(x, fs=100.0, fc_low=0.5, fc_high=5.0)
-```
+Reza Filter is a **zero-phase, frequency-domain** filter that shapes the spectrum using an exponential-window gain curve. It is designed for clean, practical band/low/high filtering in signals such as **EEG** and **IMU** time series, with optional **C++ (pybind11) acceleration** for the heavy parts.
 
-## What is accelerated in C++
-- Gain template generation (low/high/band)
-- Auto-`d` selection via edge-sharpness convergence
-- rFFT-domain complex multiply (X * gain)
-
-FFT/iFFT uses NumPy.
+---
 
 ## Install
+
 ```bash
 pip install reza-filter
-```
-
-## Local dev install
-```bash
-python -m pip install -U pip
-python -m pip install -e .
-python -c "import reza; print('has_cpp=', reza.has_cpp()); print(reza.__version__)"
-```
-
-## Build wheels
-Use GitHub Actions + cibuildwheel: see `.github/workflows/wheels.yml`.
-
-## Publish to PyPI
-```bash
-python -m pip install -U build twine
-python -m build
-python -m twine upload dist/*
-```
